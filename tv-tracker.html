@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🍿 TV Series Tracker • DoMiNaToR</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root { --bg: #0a0a14; --card: #16162b; --accent: #00ffcc; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #0a0a14 0%, #1a0033 100%);
+      color: #e0e0ff;
+      margin: 0; padding: 20px;
+      min-height: 100vh;
+    }
+    header { text-align: center; margin-bottom: 30px; animation: glow 4s infinite alternate; }
+    @keyframes glow { from { text-shadow: 0 0 20px #00ffcc; } to { text-shadow: 0 0 50px #ff00cc, 0 0 70px #00ffcc; } }
+    h1 {
+      font-size: 3.2rem;
+      background: linear-gradient(90deg, #00ffcc, #ff00cc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .controls { max-width: 1600px; margin: 0 auto 20px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    button, input, select { padding: 12px 16px; border: none; border-radius: 12px; background: #1e1e3a; color: white; }
+    button { background: var(--accent); color: #000; font-weight: bold; cursor: pointer; }
+    button:hover { transform: scale(1.05); }
+
+    table { width: 100%; max-width: 1600px; margin: 0 auto; border-collapse: collapse; background: var(--card); border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    th, td { padding: 16px 20px; text-align: left; }
+    th { background: linear-gradient(90deg, #1a0033, #2a1a4d); cursor: pointer; }
+    tr { transition: 0.3s; cursor: pointer; }
+    tr:hover { background: #252540; transform: scale(1.01); }
+
+    .watching { color: #ffcc00; }
+    .done { color: #00ff88; }
+    .progress-container { width: 200px; height: 10px; background: #222; border-radius: 10px; overflow: hidden; }
+    .progress-bar { height: 100%; background: linear-gradient(90deg, #00ffcc, #ff00cc); }
+  </style>
+</head>
+<body>
+  <div style="max-width: 1600px; margin: 0 auto;">
+    <header>
+      <h1>🍿 TV SERIES TRACKER</h1>
+      <p>DoMiNaToR_CSS • * = Смотрю / = Просмотрено • Редактирование</p>
+    </header>
+
+    <div class="controls">
+      <input type="text" id="search" placeholder="🔍 Поиск сериала..." style="width:320px;">
+      <select id="statusFilter">
+        <option value="">Все статусы</option>
+        <option value="watching">📺 Смотрю (*)</option>
+        <option value="done">✅ Просмотрено (/)</option>
+      </select>
+      <button onclick="showAddModal()">➕ Добавить</button>
+      <button onclick="exportToExcel()">📥 Экспорт в Excel</button>
+      <button onclick="clearFilters()">Сбросить</button>
+    </div>
+
+    <div id="stats" style="text-align:center; margin:25px 0; font-size:1.3rem;"></div>
+
+    <table id="trackerTable">
+      <thead>
+        <tr>
+          <th onclick="sortTable(0)">Сериал</th>
+          <th onclick="sortTable(1)">Сезон</th>
+          <th onclick="sortTable(2)">Серия</th>
+          <th onclick="sortTable(3)">Статус</th>
+          <th>Прогресс</th>
+          <th>Заметки</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.92); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:#1a1a2e; padding:30px; border-radius:20px; width:90%; max-width:520px;">
+      <h2 id="modalTitle">Редактировать сериал</h2>
+      <input type="hidden" id="editIndex">
+      <input type="text" id="newTitle" placeholder="Название сериала" style="width:100%; margin:10px 0; padding:12px;"><br>
+      <input type="number" id="newSeason" placeholder="Сезон" style="width:48%; margin:5px 0; padding:12px;">
+      <input type="number" id="newEpisode" placeholder="Серия" style="width:48%; margin:5px 0; padding:12px;"><br>
+      <select id="newStatus" style="width:100%; margin:10px 0; padding:12px;">
+        <option value="watching">📺 Смотрю (*)</option>
+        <option value="done">✅ Просмотрено (/)</option>
+      </select><br>
+      <input type="number" id="newProgress" min="0" max="100" placeholder="Прогресс (%)" style="width:100%; margin:10px 0; padding:12px;"><br>
+      <input type="text" id="newNotes" placeholder="Заметки" style="width:100%; margin:10px 0; padding:12px;"><br>
+      <button onclick="saveEdit()" style="background:#00ff88; color:#000; width:100%; padding:14px; margin:10px 0;">💾 Сохранить изменения</button>
+      <button onclick="hideModal()" style="width:100%; padding:14px;">Отмена</button>
+    </div>
+  </div>
+
+  <script>
+    let seriesData = [
+      ["ЦРУ / CIA", 3, 4, "watching", 85, "*"],
+      ["Бабочка / Метелик / Butterfly", 1, 6, "watching", 75, "*"],
+      ["Линкольн для адвоката / The Lincoln Lawyer", 3, 2, "watching", 80, "*"],
+      ["Баллард / Ballard", 1, 10, "done", 92, "/"],
+      ["Хороший коп,плохой коп / Good Cop-Bad Cop", 1, 8, "watching", 80, "*"],
+      ["Воскрешение / Revival", 1, 2, "watching", 65, "*"],
+      ["Обратный отсчёт / Countdown", 1, 13, "watching", 100, "*"],
+      ["Искатель / The Finder", 1, 13, "done", 100, "/"],
+      ["Убийство в маленьком городке", 1, 8, "done", 75, "/"],
+      ["187 Детройт / Detroit 1-8-7", 1, 13, "watching", 100, "*"],
+      ["Плохая обезьяна / Bad Monkey", 1, 10, "done", 85, "/"],
+      ["Большой потенциал / High Potential", 2, 8, "watching", 78, "*"],
+      ["Болота / Пляжный коп / The Glades", 4, 13, "done", 100, "/"],
+      ["Босх: Наследие / Bosch: Legacy", 3, 10, "done", 92, "/"],
+      ["Босх / Bosch", 7, 8, "done", 88, "/"],
+      ["Ночной агент / The Night Agent", 2, 5, "watching", 70, "*"],
+      ["Однокурсники / Community", 3, 11, "watching", 85, "*"],
+      ["Фоллаут / Fallout", 1, 3, "watching", 55, "*"],
+      ["Чеболь против детектива", 1, 15, "done", 100, "/"],
+      ["Следопыт / Tracker", 3, 17, "watching", 88, "*"],
+      ["Третий лишний / Ted", 1, 7, "done", 72, "/"],
+      ["Отчёт о буйстве духов / Yu yu hakusho", 1, 5, "done", 60, "/"],
+      ["Спасение / Salvation", 1, 6, "watching", 70, "*"],
+      ["Убийства в одном здании", 1, 7, "watching", 78, "*"],
+      ["Иррациональный / The Irrational", 2, 11, "watching", 82, "*"],
+      ["Джек Ричер / Jack Reacher", 3, 8, "watching", 78, "*"],
+      ["Дефективный детектив / Monk", 8, 16, "done", 100, "/"],
+      ["Ведьмак / The Witcher", 2, 8, "done", 75, "/"],
+      ["Сверхъестественное / Supernatural", 15, 20, "watching", 100, "*"],
+      ["Тайны Хейвена / Haven", 5, 18, "done", 95, ""],
+      ["Обмани меня / Lie to Me", 3, 13, "done", 92, "/"],
+      ["Мир Дикого Запада / Westworld", 1, 1, "done", 45, "00.37"],
+      ["Касл / Castle", 8, 22, "done", 100, "/"],
+      ["Стрела / Arrow", 5, 5, "done", 65, ""],
+      ["Флэш / The Flash", 3, 12, "done", 70, ""],
+      ["Железный кулак / Iron Fist", 1, 8, "done", 75, ""],
+      ["Кости / Bones", 1, 10, "done", 80, ""],
+      ["Хранилище 13 / Warehouse 13", 5, 5, "watching", 68, "*"],
+      ["Киллджойс / Killjoys", 2, 1, "done", 55, ""],
+      ["Элементарно / Elementary", 7, 13, "watching", 95, "*"],
+      ["Ложное обвинение / Conviction", 1, 13, "watching", 100, "*"],
+      ["Скорпион / Scorpion", 4, 22, "watching", 98, "*"],
+      ["Люцифер / Lucifer", 6, 10, "watching", 92, "*"],
+      ["Восприятие / Perception", 3, 15, "watching", 90, "*"],
+      ["Врата / The Gates", 1, 9, "done", 80, ""],
+      ["MacGyver / МакГайвер", 5, 15, "watching", 88, "*"],
+      ["По ту сторону / Beyond", 1, 10, "done", 85, "~"],
+      ["Путешественники / Travelers", 3, 10, "done", 92, "/"],
+      ["Конец игры / Endgame", 1, 13, "watching", 100, "*"],
+      ["Эпоха за эпохой / Time After Time", 1, 1, "done", 40, ""],
+      ["В розыске / A.P.B.", 1, 4, "done", 65, ""],
+      ["Настоящий гений / Pure Genius", 1, 13, "watching", 100, "*"],
+      ["Стрелок / Shooter", 2, 4, "done", 70, ""],
+      ["В надежде на спасение / Saving Hope", 1, 1, "done", 50, ""],
+      ["Вне времени / Timeless", 1, 2, "done", 60, ""],
+      ["Белый воротничок / White Collar", 6, 6, "done", 85, "/"],
+      ["Радиоволна / Frequency", 1, 7, "done", 75, ""],
+      ["Мистер Булл / Bull", 6, 22, "watching", 95, "*"],
+      ["Полиция Гавайев / Hawaii Five-0", 10, 22, "watching", 100, "*"],
+      ["Живая мишень / Human Target", 2, 13, "watching", 92, "*"],
+      ["Тёмная материя / Dark Matter", 3, 7, "done", 80, ""],
+      ["Я – зомби / iZombie", 3, 4, "done", 65, ""],
+      ["Мертвые, как я / Dead Like Me", 1, 2, "done", 55, ""],
+      ["Забытые / The Forgotten", 1, 17, "watching", 100, "*"],
+      ["Корпорация / Incorporated", 1, 1, "done", 50, "31:55"],
+      ["Миднайт, Техас / Midnight, Texas", 1, 10, "watching", 85, "*"],
+      ["Частные сыщики / Private Eyes", 5, 8, "watching", 88, "*"],
+      ["Грань / Fringe", 5, 1, "done", 60, ""],
+      ["Чёрный список / The Blacklist", 7, 19, "done", 95, "~~~~~"],
+      ["Роузвуд / Rosewood", 2, 2, "done", 60, "1455"],
+      ["Сонная Лощина / Sleepy Hollow", 1, 1, "done", 50, ""],
+      ["Мертвая зона / The Dead Zone", 4, 7, "done", 75, "~"],
+      ["Хороший доктор / The Good Doctor", 2, 13, "watching", 85, "***************"],
+      ["Призрачные войны / Ghost Wars", 1, 4, "done", 65, "~"],
+      ["Одаренные / The Gifted", 1, 5, "done", 70, ""],
+      ["Мудрость толпы / Wisdom of the Crowd", 1, 10, "done", 85, ""],
+      ["Доктор Кто / Doctor Who", 1, 3, "done", 60, "~"],
+      ["Звёздный путь:Дискавери", 1, 4, "done", 65, "~"],
+      ["Каратель / The Punisher", 2, 13, "watching", 92, "*"],
+      ["Заложница / Taken", 2, 16, "watching", 95, "*"],
+      ["Видоизмененный углерод / Altered Carbon", 1, 4, "done", 65, ""],
+      ["Шерлок / Sherlock", 4, 1, "done", 70, "1945"],
+      ["Отбросы / Misfits", 1, 4, "done", 65, ""],
+      ["9-1-1", 7, 4, "watching", 70, "*"],
+      ["Отважные / The Brave", 1, 13, "watching", 100, "*"],
+      ["Харроу / Harrow", 1, 4, "done", 65, ""],
+      ["Хитрость / Обман / Deception", 1, 13, "watching", 100, "*"],
+      ["Джессика Джонс / Jessica Jones", 2, 9, "done", 75, ""],
+      ["Затерянные в космосе / Lost in Space", 1, 1, "done", 50, "~"],
+      ["Эврика / Eureka", 4, 13, "done", 88, ""],
+      ["Плащ и Кинжал / Cloak & Dagger", 2, 7, "done", 75, ""],
+      ["Без вести / Gone", 1, 12, "watching", 92, "*"],
+      ["Грезы / Reverie", 1, 10, "watching", 85, "*"],
+      ["Спецназ / S.W.A.T.", 8, 13, "watching", 88, "*"],
+      ["Страйк / Strike", 1, 7, "watching", 75, "*"],
+      ["Нетипичный / Atypical", 3, 5, "watching", 80, "***************"],
+      ["Переправа / The Crossing", 1, 11, "watching", 85, "*"],
+      ["Картер / Carter", 1, 10, "watching", 85, "*"],
+      ["Частный детектив Магнум / Magnum P.I.", 5, 20, "watching", 95, "*"],
+      ["Город и Город / The City and the City", 1, 1, "done", 50, ""],
+      ["Манифест / Manifest", 3, 13, "done", 92, "/"],
+      ["Копы-новобранцы / Rookie Blue", 6, 10, "done", 88, ""],
+      ["Смертельное оружие / Lethal Weapon", 3, 15, "watching", 88, "*"],
+      ["Бог меня зафрендил / God Friended Me", 1, 6, "done", 70, ""],
+      ["Новобранец / The Rookie", 8, 13, "watching", 88, "*"],
+      ["Сорвиголова / Daredevil", 3, 13, "watching", 92, "*"],
+      ["ФБР / FBI", 8, 4, "watching", 70, "*"],
+      ["ФБР: Most Wanted", 6, 22, "watching", 95, "*"],
+      ["ФБР: International", 4, 8, "watching", 75, "*"],
+      ["Священная ложь / Sacred Lies", 1, 2, "done", 55, ""],
+      ["Телохранитель / Bodyguard", 1, 2, "done", 60, ""],
+      ["Новый Амстердам / New Amsterdam", 1, 11, "watching", 80, "*"],
+      ["Новый день / Day Break", 1, 13, "done", 100, "/"],
+      ["Академия«Амбрелла» / The Umbrella Academy", 4, 5, "watching", 70, "*"],
+      ["Враг внутри / The Enemy Within", 1, 13, "watching", 100, "*"],
+      ["Клятва / The Oath", 1, 1, "done", 60, "1208"],
+      ["Коронер / Coroner", 1, 8, "watching", 75, "*"],
+      ["Роковой патруль / Doom Patrol", 1, 6, "done", 70, ""],
+      ["Стальная звезда / Tin Star", 1, 2, "done", 65, "2315"],
+      ["ОА / The OA", 1, 2, "done", 60, "0956"],
+      ["Слепое правосудие / Blind Justice", 1, 12, "watching", 92, "*"],
+      ["Жизнь как приговор / Life", 2, 21, "watching", 95, "*"],
+      ["Виски Кавалер / Whiskey Cavalier", 1, 13, "watching", 100, "*"],
+      ["Общество / The Society", 1, 6, "done", 70, ""],
+      ["Убийственный класс / Deadly Class", 1, 10, "watching", 85, "*"],
+      ["Ханна / Hanna", 1, 4, "done", 65, ""],
+      ["Убийства / The Murders", 1, 8, "watching", 75, "*"],
+      ["Посредник / The InBetween", 1, 10, "watching", 85, "*"],
+      ["Доказанная невиновность / Proven Innocent", 1, 13, "watching", 100, "*"],
+      ["Риф-брейк / Reef Break", 1, 6, "done", 70, ""],
+      ["Лучшие в Лос-Анджелесе / L.A.'s Finest", 1, 2, "done", 55, ""],
+      ["Амнезия / Absentia", 1, 3, "done", 60, ""],
+      ["Ладья / The Rook", 1, 3, "done", 60, ""],
+      ["Закон и порядок. Специальный корпус", 1, 10, "done", 80, ""],
+      ["Путешественник / Вперед, в прошлое!", 1, 4, "done", 65, ""],
+      ["Алькатрас / Alcatraz", 1, 13, "watching", 100, "*"],
+      ["Дикий Билл / Wild Bill", 1, 6, "watching", 70, "*"],
+      ["Пацаны / The Boys", 3, 1, "watching", 60, "*"],
+      ["Кодекс / The Code", 1, 12, "watching", 92, "*"],
+      ["Связь / Touch", 2, 10, "done", 85, ""],
+      ["Последний кандидат / Designated Survivor", 3, 3, "done", 65, "1715"],
+      ["Воспитывая Диона / Raising Dion", 1, 4, "done", 65, ""],
+      ["911: Одинокая звезда / 9-1-1: Lone Star", 1, 2, "done", 55, ""],
+      ["Шериф / Deputy", 1, 11, "watching", 85, "*"],
+      ["Мне это ненравится / I Am Not Okay With This", 1, 2, "done", 55, ""],
+      ["Навсегда / For Life", 2, 10, "done", 85, "/"],
+      ["Пожарная часть 19 / Station 19", 2, 2, "done", 55, ""],
+      ["Удивительные истории / Amazing Stories", 1, 1, "done", 50, ""],
+      ["Почти рай / Almost Paradise", 1, 10, "watching", 85, "*"],
+      ["Трансплантация / Transplant", 1, 7, "done", 75, ""],
+      ["Полиция племени / Tribal", 1, 6, "done", 70, ""],
+      ["Кондор / Condor", 2, 10, "watching", 85, "*"],
+      ["Профессионалы / Professionals", 1, 2, "watching", 60, "*************"],
+      ["Вернуть из мертвых / Tru Calling", 1, 20, "watching", 100, "***************"],
+      ["Засланец из космоса / Resident Alien", 4, 10, "done", 92, "/"],
+      ["Локи / Loki", 2, 6, "watching", 75, "*"],
+      ["Детектив Рой Грейс / Grace", 4, 1, "watching", 60, "*"],
+      ["Грабь награбленное / Leverage", 5, 15, "watching", 88, "~*"],
+      ["Грабь награбленное:Искупление", 2, 1, "watching", 55, "*"],
+      ["Вульф / Wolfe", 1, 3, "done", 65, "3825"],
+      ["C.S.I. Место преступления - Лас-Вегас", 2, 10, "watching", 75, "*"],
+      ["CSI: Вегас", 3, 10, "watching", 75, "*"],
+      ["Своя Правда / Justified", 3, 5, "done", 70, ""],
+      ["Светлячок / Firefly", 1, 14, "done", 100, "/"],
+      ["Лунный рыцарь / Moon Knight", 1, 4, "watching", 65, "*"],
+      ["Хало / Halo", 1, 4, "watching", 65, "*"],
+      ["Кровь и сокровища / Blood & Treasure", 2, 3, "watching", 60, "*"],
+      ["Мыслить как преступник:Эволюция", 2, 4, "watching", 65, "*"],
+      ["Мыслить как преступник / Criminal Minds", 2, 21, "watching", 85, "*"],
+      ["Король Талсы / Tulsa King", 2, 5, "watching", 70, "*"],
+      ["Уилл Трент / Will Trent", 4, 4, "watching", 65, "*"],
+      ["Супермен и Лоис / Superman & Lois", 2, 9, "watching", 75, "*"],
+      ["Человек из Флориды / Florida Man", 1, 7, "done", 75, "/"],
+      ["Квантовый скачок / Quantum Leap", 1, 18, "watching", 95, "*"],
+      ["Фубар / Fubar", 2, 4, "watching", 65, "*"],
+      ["Неукротимый / Untamed", 1, 6, "done", 70, "/"]
+    ];
+
+    let editIndex = -1;
+
+    function loadData() {
+      const saved = localStorage.getItem('tvTrackerData');
+      if (saved) seriesData = JSON.parse(saved);
+    }
+
+    function saveData() {
+      localStorage.setItem('tvTrackerData', JSON.stringify(seriesData));
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      data.forEach((row, idx) => {
+        const globalIdx = seriesData.indexOf(row);
+        const tr = document.createElement('tr');
+        tr.onclick = () => editRow(globalIdx);
+        tr.innerHTML = `
+          <td style="font-weight:600;">${row[0]}</td>
+          <td>${row[1]}</td>
+          <td>${row[2]}</td>
+          <td><span class="${row[3]}" style="padding:6px 14px;border-radius:30px;font-weight:bold;">
+            ${row[3]==='watching' ? '📺 Смотрю (*)' : '✅ Просмотрено (/)'}
+          </span></td>
+          <td><div class="progress-container"><div class="progress-bar" style="width:${row[4]}%"></div></div></td>
+          <td class="${row[3]}">${row[5]||''}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      updateStats(data);
+    }
+
+    function updateStats(data) {
+      const total = data.length;
+      const watching = data.filter(r => r[3] === 'watching').length;
+      document.getElementById('stats').innerHTML = `
+        Всего сериалов: <b>${total}</b> | 
+        <span style="color:#ffcc00">Смотрю: <b>${watching}</b></span> | 
+        <span style="color:#00ff88">Просмотрено: <b>${total-watching}</b></span>
+      `;
+    }
+
+    function filterTable() {
+      const term = document.getElementById('search').value.toLowerCase();
+      const status = document.getElementById('statusFilter').value;
+      const filtered = seriesData.filter(r => 
+        r[0].toLowerCase().includes(term) && (!status || r[3] === status)
+      );
+      renderTable(filtered);
+    }
+
+    function sortTable(col) {
+      seriesData.sort((a,b) => col === 0 ? a[0].localeCompare(b[0], 'ru') : a[col] - b[col]);
+      filterTable();
+    }
+
+    function showAddModal() {
+      editIndex = -1;
+      document.getElementById('modalTitle').textContent = '➕ Добавить новый сериал';
+      document.getElementById('newTitle').value = '';
+      document.getElementById('newSeason').value = '1';
+      document.getElementById('newEpisode').value = '1';
+      document.getElementById('newStatus').value = 'watching';
+      document.getElementById('newProgress').value = '50';
+      document.getElementById('newNotes').value = '';
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    function editRow(index) {
+      editIndex = index;
+      const row = seriesData[index];
+      document.getElementById('modalTitle').textContent = '✏️ Редактировать сериал';
+      document.getElementById('newTitle').value = row[0];
+      document.getElementById('newSeason').value = row[1];
+      document.getElementById('newEpisode').value = row[2];
+      document.getElementById('newStatus').value = row[3];
+      document.getElementById('newProgress').value = row[4];
+      document.getElementById('newNotes').value = row[5] || '';
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    function saveEdit() {
+      const title = document.getElementById('newTitle').value.trim();
+      if (!title) return alert("Название обязательно!");
+
+      const row = [
+        title,
+        parseInt(document.getElementById('newSeason').value) || 1,
+        parseInt(document.getElementById('newEpisode').value) || 1,
+        document.getElementById('newStatus').value,
+        parseInt(document.getElementById('newProgress').value) || 50,
+        document.getElementById('newNotes').value.trim()
+      ];
+
+      if (editIndex >= 0) {
+        seriesData[editIndex] = row;
+      } else {
+        seriesData.unshift(row);
+      }
+      saveData();
+      hideModal();
+      filterTable();
+    }
+
+    function hideModal() {
+      document.getElementById('modal').style.display = 'none';
+    }
+
+    function exportToExcel() {
+      const data = seriesData.map(r => ({
+        "Сериал": r[0],
+        "Сезон": r[1],
+        "Серия": r[2],
+        "Статус": r[3] === "watching" ? "Смотрю (*)" : "Просмотрено (/)",
+        "Прогресс %": r[4],
+        "Заметки": r[5]
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "TV Tracker");
+      XLSX.writeFile(wb, `TV_Tracker_DoMiNaToR_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    function clearFilters() {
+      document.getElementById('search').value = '';
+      document.getElementById('statusFilter').value = '';
+      renderTable(seriesData);
+    }
+
+    // Инициализация
+    loadData();
+    document.getElementById('search').addEventListener('input', filterTable);
+    document.getElementById('statusFilter').addEventListener('change', filterTable);
+    renderTable(seriesData);
+  </script>
+</body>
+</html>
